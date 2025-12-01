@@ -21,7 +21,9 @@ pacman::p_load(
   dplyr,          
   tidyr,          
   haven,          
-  table1          
+  table1, 
+  DiagrammeR,
+  rsvg
 )
 ```
 
@@ -240,43 +242,45 @@ ggplot(data = analysis_data %>% filter(!is.na(depression_binary))) +
   theme(legend.position = "none")
 ```
 
-# 7. Complete case analysis
+# 7. Create exclusion datasets step-by-step (following class exercise pattern)
 
+## 7a. Drop observations with age <18 years
 ```{r}
-# Dataset with complete cases
-# Includion Criteria of 18 year and above
-analysis_data_adults <- analysis_data %>%
-  filter(RIDAGEYR >= 18) 
-# Exclude missing values for key variables
-analysis_complete <- analysis_data_adults %>%
-  filter(
-    !is.na(LBXVIDMS),           # Vitamin D
-    !is.na(depression_binary),  # Depression outcome
-    !is.na(RIDAGEYR),           # Age
-    !is.na(sex),                # Sex
-    !is.na(race_ethnicity),     # Race/ethnicity
-    !is.na(BMXBMI),             # BMI
-    !is.na(education),          # Education
-    !is.na(INDFMPIR),           # Income-to-poverty ratio
-    !is.na(smoking_status)      # Smoking status
-  )
+ex1 <- analysis_data %>%
+  filter(RIDAGEYR >= 18)
 
-# Calculate percentage of data dropped
-n_original <- nrow(analysis_data)
-n_adults <- nrow(analysis_data_adults)
-n_complete <- nrow(analysis_complete)
-n_dropped_age <- n_original - n_adults
-n_dropped_missing <- n_adults - n_complete
-pct_dropped <- (1 - n_complete/n_original) * 100
+cat("After excluding age <18:", nrow(ex1), "observations\n")
+```
 
-cat("=== SAMPLE SELECTION ===\n")
-cat("Total NHANES 2021-2023:", n_original, "\n")
-cat("  Excluded <18 years:", n_dropped_age, "\n\n")
-cat("Adults ≥18 years:", n_adults, "\n")
-cat("  Excluded missing data:", n_dropped_missing, "\n\n")
-cat("FINAL ANALYTIC SAMPLE:", n_complete, "\n\n")
-cat("Overall retention:", round((n_complete/n_original)*100, 1), "%\n")
-cat("Retention from adults:", round((n_complete/n_adults)*100, 1), "%\n")
+## 7b. Drop observations with missing vitamin D data
+```{r}
+ex2 <- ex1 %>%
+  drop_na(LBXVIDMS)
+
+cat("After excluding missing vitamin D:", nrow(ex2), "observations\n")
+```
+
+## 7c. Drop observations with missing PHQ-9 data
+```{r}
+ex3 <- ex2 %>%
+  drop_na(depression_binary)
+
+cat("After excluding missing PHQ-9:", nrow(ex3), "observations\n")
+```
+
+## 7d. Drop observations with missing covariates
+```{r}
+ex4 <- ex3 %>%
+  drop_na(sex, race_ethnicity, BMXBMI, education, INDFMPIR, smoking_status)
+
+cat("After excluding missing covariates:", nrow(ex4), "observations\n")
+```
+
+## 7e. Create final analytic dataset
+```{r}
+analysis_complete <- ex4
+
+cat("\nFINAL ANALYTIC SAMPLE:", nrow(analysis_complete), "observations\n")
 ```
 
 # 8. Test linearity assumption for continuous predictors
@@ -407,73 +411,60 @@ abline(h = 1, lty = 2, col = "blue")
 odds.n.ends(model_adjusted, predProbPlot = TRUE, rocPlot = TRUE)
 ```
 
-# 14. Descriptive Table 1
+# 14. Table 1: Baseline Characteristics (following class exercise pattern)
+```{r, echo=FALSE}
+# Add variable labels
+label(analysis_complete$LBXVIDMS)       <- "Serum Vitamin D (nmol/L)"
+label(analysis_complete$vitd_category)  <- "Vitamin D Status"
+label(analysis_complete$RIDAGEYR)       <- "Age (years)"
+label(analysis_complete$sex)            <- "Sex"
+label(analysis_complete$race_ethnicity) <- "Race/Ethnicity"
+label(analysis_complete$bmi_cat)        <- "BMI Category"
+label(analysis_complete$education)      <- "Education Level"
+label(analysis_complete$INDFMPIR)       <- "Income-to-Poverty Ratio"
+label(analysis_complete$smoking_status) <- "Smoking Status"
 
-```{r}
-library(htmltools)
-library(rmarkdown)
-# Create Table 1: Descriptive statistics by depression status
-t1 <- table1::table1(
-  ~ LBXVIDMS + vitd_category + RIDAGEYR + sex + race_ethnicity + 
-    bmi_cat + education + INDFMPIR + smoking_status | depression_binary,
-  data = analysis_complete,
-  caption = "Descriptive Statistics by Depression Status (PHQ-9 ≥ 10)"
-)
-save_html(t1, file = "Table1.html")
-pandoc_convert("Table1.html", to = "docx", output = "Table1.docx")
+# Create Table 1
+table1(~ LBXVIDMS + vitd_category + RIDAGEYR + sex + race_ethnicity + 
+         bmi_cat + education + INDFMPIR + smoking_status | depression_binary, 
+       analysis_complete)
 ```
 
-# Figure 1. Study Population Selection
-```{r}
-# Step 1: Total
-n1_total <- nrow(nhanes_data)
+**Table 1.** Baseline characteristics stratified by depression status (PHQ-9 ≥ 10). 
+Continuous variables presented as mean ± SD; categorical variables as N (%).
 
-# Step 2: Adults only
-n2_adults <- sum(nhanes_data$RIDAGEYR >= 18, na.rm = TRUE)
+# 8. Figure 1: Participant Selection Flowchart (following class exercise pattern)
+```{r, echo=FALSE}
+# Calculate numbers for flowchart
+n_start <- nrow(analysis_data)
+n_ex1 <- nrow(ex1)
+n_ex2 <- nrow(ex2)
+n_ex3 <- nrow(ex3)
+n_ex4 <- nrow(ex4)
 
-# Step 3: With vitamin D
-n3_with_vitd <- sum(nhanes_data$RIDAGEYR >= 18 & 
-                    !is.na(nhanes_data$LBXVIDMS), na.rm = TRUE)
-
-# Step 4: With PHQ-9
-n4_with_phq9 <- sum(nhanes_data$RIDAGEYR >= 18 & 
-                    !is.na(nhanes_data$LBXVIDMS) & 
-                    !is.na(nhanes_data$depression_binary), na.rm = TRUE)
-
-# Step 5: Final complete cases
-n5_final <- nrow(analysis_complete)
-
-# Print flowchart
-cat("        NHANES 2021-2023 Total\n")
-cat("              N =", n1_total, "\n")
-cat("                 |\n")
-cat("                 ↓\n")
-cat("      Excluded: Age <18 (n =", n1_total - n2_adults, ")\n")
-cat("                 |\n")
-cat("           Adults ≥18\n")
-cat("              N =", n2_adults, "\n")
-cat("                 |\n")
-cat("                 ↓\n")
-cat("   Excluded: Missing Vitamin D (n =", n2_adults - n3_with_vitd, ")\n")
-cat("                 |\n")
-cat("        With Vitamin D Data\n")
-cat("              N =", n3_with_vitd, "\n")
-cat("                 |\n")
-cat("                 ↓\n")
-cat("    Excluded: Missing PHQ-9 (n =", n3_with_vitd - n4_with_phq9, ")\n")
-cat("                 |\n")
-cat("         With PHQ-9 Data\n")
-cat("              N =", n4_with_phq9, "\n")
-cat("                 |\n")
-cat("                 ↓\n")
-cat("  Excluded: Missing Covariates* (n =", n4_with_phq9 - n5_final, ")\n")
-cat("                 |\n")
-cat("       FINAL ANALYTIC SAMPLE\n")
-cat("              N =", n5_final, "\n")
-cat("\n")
-cat("Overall retention:", round((n5_final/n1_total)*100, 1), "%\n")
-cat("\n*Sex, race/ethnicity, BMI, education, income, smoking\n")
+# Create flowchart using DiagrammeR (like class exercise)
+grViz(diagram = "digraph flowchart{
+      node [fontname = Arial, shape = rectangle, fontsize=12] 
+      
+      node1 [label = '@@1']
+      node2 [label = '@@2']
+      node3 [label = '@@3']
+      node4 [label = '@@4']
+      node5 [label = '@@5']
+      
+      node1 -> node2 -> node3 -> node4 -> node5
+}
+      [1]: paste0('Starting number of records in NHANES 2021-2023\\nn = ', format(n_start, big.mark=','))
+      [2]: paste0('Excluding ', format(n_start - n_ex1, big.mark=','), ' individuals age <18 years\\nn = ', format(n_ex1, big.mark=','))
+      [3]: paste0('Excluding ', format(n_ex1 - n_ex2, big.mark=','), ' individuals with missing vitamin D data\\nn = ', format(n_ex2, big.mark=','))
+      [4]: paste0('Excluding ', format(n_ex2 - n_ex3, big.mark=','), ' individuals with missing PHQ-9 data\\nn = ', format(n_ex3, big.mark=','))
+      [5]: paste0('Excluding ', format(n_ex3 - n_ex4, big.mark=','), ' individuals with missing covariates*\\nn = ', format(n_ex4, big.mark=','))
+      ")
 ```
+
+**Figure 1.** Participant selection flowchart for NHANES 2021-2023 analysis of vitamin D and depression.
+
+*Covariates: sex, race/ethnicity, BMI, education, income-to-poverty ratio, smoking status
 
 #**Inclusion Criteria:**
 #- Adults aged ≥18 years
